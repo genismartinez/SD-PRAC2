@@ -15,31 +15,26 @@ def _get_return(ret: GetResponse) -> Union[str, None]:
     else:
         return None
 
+
 class SimpleClient:
     def __init__(self, kvstore_address: str):
         self.channel = grpc.insecure_channel(kvstore_address)
         self.stub = KVStoreStub(self.channel)
 
     def get(self, key: int) -> Union[str, None]:
-        get_request = GetRequest(key=key)
-        return _get_return(self.stub.Get(get_request))
+        return _get_return(ret=self.stub.Get(GetRequest(key=key)))
 
     def l_pop(self, key: int) -> Union[str, None]:
-        get_request = GetRequest(key=key)
-        return _get_return(self.stub.LPop(get_request))
+        return _get_return(ret=self.stub.LPop(GetRequest(key=key)))
 
     def r_pop(self, key: int) -> Union[str, None]:
-        get_request = GetRequest(key=key)
-        return _get_return(self.stub.RPop(get_request))
+        return _get_return(ret=self.stub.RPop(GetRequest(key=key)))
 
     def put(self, key: int, value: str):
-        put_request = PutRequest(key=key, value=value)
-        self.stub.Put(put_request)
+        self.stub.Put(PutRequest(key=key, value=value))
 
     def append(self, key: int, value: str):
-        print("CLIENT APPEND")
-        append_request = AppendRequest(key=key, value=value)
-        self.stub.Append(append_request)
+        self.stub.Append(PutRequest(key=key, value=value))
 
     def stop(self):
         self.channel.close()
@@ -47,41 +42,36 @@ class SimpleClient:
 
 class ShardClient(SimpleClient):
     def __init__(self, shard_master_address: str):
-        super().__init__(shard_master_address)
         self.channel = grpc.insecure_channel(shard_master_address)
         self.stub = ShardMasterStub(self.channel)
-        self._servers = dict()  # dictionary that will store port:stub, so that overhead is reduced
-
-    def _query(self , key: int):
-        return self.stub.Query(QueryRequest(key=key))   # We request the port of the server that has the key
 
     def get(self, key: int) -> Union[str, None]:
-        port = self._query(key)     # We request the server where is the key
-        channel = grpc.insecure_channel(port)
+        port: QueryResponse = self.stub.Query(QueryRequest(key=key))
+        channel = grpc.insecure_channel(port.server)
         stub = KVStoreStub(channel)
-        return stub.Get(GetRequest(key=key))
+        return _get_return(ret=stub.Get(GetRequest(key=key)))
 
     def l_pop(self, key: int) -> Union[str, None]:
-        port = self._query(key)
-        channel = grpc.insecure_channel(port)
+        port: QueryResponse = self.stub.Query(QueryRequest(key=key))
+        channel = grpc.insecure_channel(port.server)
         stub = KVStoreStub(channel)
-        return stub.LPop(GetRequest(key=key))
+        return _get_return(ret=stub.LPop(GetRequest(key=key)))
 
     def r_pop(self, key: int) -> Union[str, None]:
-        port = self._query(key)
-        channel = grpc.insecure_channel(port)
+        port: QueryResponse = self.stub.Query(QueryRequest(key=key))
+        channel = grpc.insecure_channel(port.server)
         stub = KVStoreStub(channel)
-        return stub.RPop(GetRequest(key=key))
+        return _get_return(ret=stub.RPop(GetRequest(key=key)))
 
     def put(self, key: int, value: str):
-        port = self._query(key)
-        channel = grpc.insecure_channel(port)
+        port: QueryResponse = self.stub.Query(QueryRequest(key=key))
+        channel = grpc.insecure_channel(port.server)
         stub = KVStoreStub(channel)
         stub.Put(PutRequest(key=key, value=value))
 
     def append(self, key: int, value: str):
-        port = self._query(key)
-        channel = grpc.insecure_channel(port)
+        port: QueryResponse = self.stub.Query(QueryRequest(key=key))
+        channel = grpc.insecure_channel(port.server)
         stub = KVStoreStub(channel)
         stub.Append(AppendRequest(key=key, value=value))
 
@@ -98,21 +88,17 @@ class ShardReplicaClient(ShardClient):
         To fill with your code
         """
 
-
     def r_pop(self, key: int) -> Union[str, None]:
         """
         To fill with your code
         """
-
 
     def put(self, key: int, value: str):
         """
         To fill with your code
         """
 
-
     def append(self, key: int, value: str):
         """
         To fill with your code
         """
-
