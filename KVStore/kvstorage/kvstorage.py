@@ -7,6 +7,8 @@ import grpc
 from KVStore.protos.kv_store_pb2 import *
 from KVStore.protos.kv_store_pb2_grpc import KVStoreServicer, KVStoreStub
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
+from multiprocessing import Manager
+from typing import Optional
 
 from KVStore.protos.kv_store_shardmaster_pb2 import Role, QueryRequest
 
@@ -16,37 +18,63 @@ logger = logging.getLogger("KVStore")
 
 
 class KVStorageService:
-
     def __init__(self):
-        pass
+        self.manager = Manager()
+        self.data: Dict[int, str] = self.manager.dict()
+        self.replicas: Dict[str, KVStoreStub] = self.manager.dict()
 
-    def get(self, key: int) -> str:
-        pass
+    def get(self, key: int) -> Optional[str]:
+        print(f"GET: {key} -> {self.data.get(key)}")
+        return self.data.get(key)
 
-    def l_pop(self, key: int) -> str:
-        pass
+    def l_pop(self, key: int) -> Optional[str]:
+        if key not in self.data:
+            return None
+        value = self.data[key]
+        if len(value) > 0:
+            popped_char = value[0]
+            self.data[key] = value[1:]
+            return popped_char
+        return ""
 
-    def r_pop(self, key: int) -> str:
-        pass
+    def r_pop(self, key: int) -> Optional[str]:
+        if key not in self.data:
+            return None
+        value = self.data[key]
+        if len(value) > 0:
+            popped_char = value[-1]
+            self.data[key] = value[:-1]
+            return popped_char
+        return ""
 
     def put(self, key: int, value: str):
-        pass
+        self.data[key] = value
+        print(f"PUT: {key} -> {value}")
 
     def append(self, key: int, value: str):
-        pass
+        if key not in self.data:
+            self.data[key] = value
+            print(f"APPEND: {key} -> {value}")
+        else:
+            self.data[key] = self.data[key] + value
+            print(f"APPEND: {key} -> {self.data[key]} -> {value}")
 
     def redistribute(self, destination_server: str, lower_val: int, upper_val: int):
-        pass
+        keys_values = [KeyValue(key=key, value=self.data[key]) for key in self.data.keys() if lower_val <= key <= upper_val]
+        self.data = {key: value for key, value in self.data.items() if key not in keys_values}
 
-    def transfer(self, keys_values: list):
-        pass
+        if keys_values:
+            stub = KVStoreStub(grpc.insecure_channel(destination_server))
+            stub.Transfer(TransferRequest(keys_values=keys_values))
+
+    def transfer(self, keys_values: List[KeyValue]):
+        self.data.update({element.key: element.value for element in keys_values})
 
     def add_replica(self, server: str):
-        pass
+        self.replicas[server] = KVStoreStub(grpc.insecure_channel(server))
 
     def remove_replica(self, server: str):
-        pass
-
+        del self.replicas[server]
 
 class KVStorageSimpleService(KVStorageService):
 
@@ -136,6 +164,7 @@ class KVStorageSimpleService(KVStorageService):
         self.signalKey(key)  # Liberamos la key == signal
 
     def redistribute(self, destination_server: str, lower_val: int, upper_val: int):
+        """
         # We build the dictionary with the matching keys
         keys_values = dict()
         lista = list[KeyValue]
@@ -149,15 +178,17 @@ class KVStorageSimpleService(KVStorageService):
         channel = grpc.insecure_channel(destination_server)
         stub = KVStoreStub(channel)
         # Generate gRPC request to TransferRequest
-
-
         stub.Transfer(TransferRequest(keys_values=lista))
+        """
+        keys_values = [KeyValue(key=key, value=self._dictionary[key]) for key in self._dictionary.keys() if lower_val <= key <= upper_val]
+        self._dictionary = {key: value for key, value in self._dictionary.items() if key not in keys_values}
+
+        if keys_values:
+            stub = KVStoreStub(grpc.insecure_channel(destination_server))
+            stub.Transfer(TransferRequest(keys_values=keys_values))
 
     def transfer(self, keys_values: List[KeyValue]):
-        for key, value in keys_values:
-            self.waitKey(key)
-            self._dictionary[key] = value
-            self.signalKey(key)
+        self._dictionary.update({element.key: element.value for element in keys_values})
 
 
 class KVStorageReplicasService(KVStorageSimpleService):

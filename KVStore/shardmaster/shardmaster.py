@@ -7,12 +7,26 @@ from KVStore.protos.kv_store_pb2 import RedistributeRequest, ServerRequest
 from KVStore.protos.kv_store_pb2_grpc import KVStoreStub
 from KVStore.protos.kv_store_shardmaster_pb2_grpc import ShardMasterServicer
 from KVStore.protos.kv_store_shardmaster_pb2 import *
+from typing import Dict, Tuple
 
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 from multiprocessing import Manager
 
 
 logger = logging.getLogger(__name__)
+
+
+def grpc_redistribute(source_server: str, destination_server: str, keys: Tuple[int, int]):
+    redistribute_request = RedistributeRequest()
+    redistribute_request.destination_server = destination_server
+    redistribute_request.lower_val = keys[0]
+    redistribute_request.upper_val = keys[1]
+    print(f"Source server: {source_server}, Destination server: {destination_server}, Keys: {keys}")
+    with grpc.insecure_channel(source_server) as channel:
+        stub = KVStoreStub(channel)
+        response = stub.Redistribute(redistribute_request)
+
+    print(f"Redistributed keys: {keys} from {source_server} to {destination_server}")
 
 
 class ShardMasterService:
@@ -26,18 +40,77 @@ class ShardMasterService:
         with self.lock:
             if server not in self.servers:
                 self.servers.append(server)
-                # Recalculate shards
-
-
-
-        pass
+                self.recalculate_shards()
+                self.redistribute_keys(server)
+                print(f"New Join ({server}), Servers -> {self.servers}")
+                print(f"Shards -> {self.node_dict}")
 
     def leave(self, server: str):
+        if server in self.servers:
+            self.lock.acquire()
+            try:
+                self.servers.remove(server)
+                del self.node_dict[server]
+                if len(self.servers) >= 1:
+                    self.recalculate_shards()
+                    destination = self.servers[0]
+                    grpc_redistribute(server, destination, (0, 99))
+                    self.redistribute_keys(server)
+            finally:
+                self.lock.release()
+            print(f"New Leave ({server}), Servers -> {self.servers}")
+            print(f"Shards -> {self.node_dict}")
 
-        pass
+    def recalculate_shards(self):
+        total_servers = len(self.servers)
+        total_keys = 100
 
-    def query(self, key: int) -> str:
-        pass
+        if total_servers == 0:
+            return
+
+        avg_keys_per_server = total_keys // total_servers
+        remaining_keys = total_keys % total_servers
+
+        lower_val = 0
+        for i, server in enumerate(self.servers):
+            keys_count = avg_keys_per_server + (1 if i < remaining_keys else 0)
+            upper_val = lower_val + keys_count - 1
+            self.node_dict[server] = (lower_val, upper_val)
+            lower_val = upper_val + 1
+
+    def query(self, key):
+        # self.lock.acquire()
+        for address in self.servers:
+            print(f"Key: {str(key)} Range: {str(self.node_dict.get(address))} Server: {address}")
+            if self.node_dict.get(address)[0] <= key <= self.node_dict.get(address)[1]:
+                return address
+        # self.lock.release()
+        return None
+
+    def redistribute_keys(self, server):
+        #with self.lock:
+        if server in self.servers:
+            server_index = self.servers.index(server)
+            prev_server = self.servers[server_index - 1] if server_index > 0 else None
+            next_server = self.servers[server_index + 1] if server_index < len(self.servers) - 1 else None
+
+            if prev_server:
+                shard = self.node_dict[prev_server]
+                if shard[1] != 99:
+                    destination = server
+                    keys = (shard[1] + 1, 99)
+                    print(f"Redistributing keys: {keys} from {prev_server} to {destination}")
+                    grpc_redistribute(prev_server, destination, keys)
+
+            if next_server:
+                shard = self.node_dict[next_server]
+                if shard[0] != 0:
+                    destination = server
+                    keys = (0, shard[0])
+                    print(f"Redistributing keys: {keys} from {next_server} to {destination}")
+                    grpc_redistribute(next_server, destination, keys)
+        else:
+            print(f"Server {server} not in servers list")
 
     def join_replica(self, server: str) -> Role:
         pass
@@ -133,12 +206,12 @@ class ShardMasterServicer(ShardMasterServicer):
         return google_dot_protobuf_dot_empty__pb2.Empty()
 
     def Query(self, request: QueryRequest, context) -> QueryResponse:
-        key = request.key
-        response = self.shard_master_service.query(key)
-        query_response = QueryResponse()
-        if response is not None:
-            query_response.server = response
-        return query_response
+        response = self.shard_master_service.query(request.key)
+        toReturn: QueryResponse = QueryResponse(server=response)
+        if response == "":
+            return QueryResponse(server=None)
+        else:
+            return toReturn
 
 
     def JoinReplica(self, request: JoinRequest, context) -> JoinReplicaResponse:
