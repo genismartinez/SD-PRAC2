@@ -47,39 +47,43 @@ class SimpleClient:
 
 class ShardClient(SimpleClient):
     def __init__(self, shard_master_address: str):
+        super().__init__(shard_master_address)
         self.channel = grpc.insecure_channel(shard_master_address)
         self.stub = ShardMasterStub(self.channel)
-        """
-        To fill with your code
-        """
+        self._servers = dict()  # dictionary that will store port:stub, so that overhead is reduced
+
+    def _query(self , key: int):
+        return self.stub.Query(QueryRequest(key=key))   # We request the port of the server that has the key
 
     def get(self, key: int) -> Union[str, None]:
-        """
-        To fill with your code
-        """
+        port = self._query(key)     # We request the server where is the key
+        channel = grpc.insecure_channel(port)
+        stub = KVStoreStub(channel)
+        return stub.Get(GetRequest(key=key))
 
     def l_pop(self, key: int) -> Union[str, None]:
-        """
-        To fill with your code
-        """
-
+        port = self._query(key)
+        channel = grpc.insecure_channel(port)
+        stub = KVStoreStub(channel)
+        return stub.LPop(GetRequest(key=key))
 
     def r_pop(self, key: int) -> Union[str, None]:
-        """
-        To fill with your code
-        """
-
+        port = self._query(key)
+        channel = grpc.insecure_channel(port)
+        stub = KVStoreStub(channel)
+        return stub.RPop(GetRequest(key=key))
 
     def put(self, key: int, value: str):
-        """
-        To fill with your code
-        """
-
+        port = self._query(key)
+        channel = grpc.insecure_channel(port)
+        stub = KVStoreStub(channel)
+        stub.Put(PutRequest(key=key, value=value))
 
     def append(self, key: int, value: str):
-        """
-        To fill with your code
-        """
+        port = self._query(key)
+        channel = grpc.insecure_channel(port)
+        stub = KVStoreStub(channel)
+        stub.Append(AppendRequest(key=key, value=value))
 
 
 class ShardReplicaClient(ShardClient):
