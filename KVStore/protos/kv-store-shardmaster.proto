@@ -1,0 +1,49 @@
+syntax = "proto3";
+import "google/protobuf/empty.proto";
+
+// Necessary for the second subtask
+message JoinRequest {
+  string server = 1;
+}
+
+message LeaveRequest {
+  string server = 1;
+}
+
+message QueryRequest {
+  uint32 key = 1;
+}
+
+message QueryResponse {
+  string server = 1;
+}
+
+enum Role {
+  MASTER = 0;
+  REPLICA = 1;
+}
+
+message JoinReplicaResponse {
+  Role role = 1;
+}
+
+enum Operation {
+  GET = 0;
+  PUT = 1;
+  APPEND = 2;
+  L_POP = 3;
+  R_POP = 4;
+}
+
+message QueryReplicaRequest {
+  uint32 key = 1;
+  Operation operation = 2;
+}
+
+service ShardMaster {
+  rpc Join (JoinRequest) returns (google.protobuf.Empty) {}
+  rpc Leave (LeaveRequest) returns (google.protobuf.Empty) {}
+  rpc Query (QueryRequest) returns (QueryResponse) {}
+
+  rpc JoinReplica(JoinRequest) returns (JoinReplicaResponse) {}
+  rpc QueryReplica (QueryReplicaRequest) returns (QueryResponse) {}}

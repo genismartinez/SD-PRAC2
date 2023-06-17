@@ -1,0 +1,8 @@
+README.md
+setup.py
+KVStore/__init__.py
+KVStore/logger.py
+KVStore.egg-info/PKG-INFO
+KVStore.egg-info/SOURCES.txt
+KVStore.egg-info/dependency_links.txt
+KVStore.egg-info/top_level.txt
