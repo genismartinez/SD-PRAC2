@@ -9,15 +9,31 @@ from KVStore.protos.kv_store_shardmaster_pb2_grpc import ShardMasterServicer
 from KVStore.protos.kv_store_shardmaster_pb2 import *
 
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
+from multiprocessing import Manager
+
 
 logger = logging.getLogger(__name__)
 
 
 class ShardMasterService:
+    def __init__(self):
+        self.manager = Manager()
+        self.node_dict = self.manager.dict()
+        self.servers = self.manager.list()
+        self.lock = threading.Lock()
+
     def join(self, server: str):
+        with self.lock:
+            if server not in self.servers:
+                self.servers.append(server)
+                # Recalculate shards
+
+
+
         pass
 
     def leave(self, server: str):
+
         pass
 
     def query(self, key: int) -> str:
@@ -86,19 +102,20 @@ class ShardMasterReplicasService(ShardMasterSimpleService):
         """
 
     def leave(self, server: str):
-        """
-        To fill with your code
-        """
+        super().leave(server)
 
     def join_replica(self, server: str) -> Role:
-        """
-        To fill with your code
-        """
+        response = super().join_replica(server)
+        if response == "MASTER":
+            return Role.MASTER
+        elif response == "REPLICA":
+            return Role.REPLICA
+        else:
+            raise ValueError("ROLE NOT FOUND")
 
     def query_replica(self, key: int, op: Operation) -> str:
-        """
-        To fill with your code
-        """
+        response = super().query_replica(key, op)
+        return response
 
 
 class ShardMasterServicer(ShardMasterServicer):
@@ -125,17 +142,8 @@ class ShardMasterServicer(ShardMasterServicer):
 
 
     def JoinReplica(self, request: JoinRequest, context) -> JoinReplicaResponse:
-        #server = request.server
-        #role = self.shard_master_service.join_replica(server)
-        #return JoinReplicaResponse(role)
-        pass
+        return JoinReplicaResponse(role=self.shard_master_service.join_replica(request.server))
+
 
     def QueryReplica(self, request: QueryReplicaRequest, context) -> QueryResponse:
-        #key = request.key
-        #op = request.operation
-        #response = self.shard_master_service.query_replica(key, op)
-        #query_response = QueryResponse()
-        #if response is not None:
-        #    query_response.server = response
-        #return query_response
-        pass
+        return QueryResponse(server=self.shard_master_service.query_replica(request.key, request.operation))
